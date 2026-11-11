@@ -10,12 +10,16 @@ This repository is in the documentation and bootstrap phase. The application has
 
 - React, TypeScript, and Vite frontend.
 - Node.js, Express, and TypeScript backend.
-- SQLite application database, with migrations and an ORM choice still to be confirmed.
+- SQLite application database with separate logical catalogue tables; migrations and an ORM choice remain to be confirmed.
 - Docker Compose deployment, using port **8787** by default.
 - Independent household accounts, each with isolated data and one or more Traveller/save profiles. Switching accounts is separate from switching save profiles.
 - Catalogue data installed from published releases in the independent `nmsinventory-data` repository. The application does not depend on the private `nmsinventory-scraper` repository.
+- Shared versioned JSON catalogue contract, immutable UUID item and recipe IDs, separate recipe records, package-relative image references, and a `manifest.json` with SHA-256 integrity checks.
+- Catalogue updates preserve retired/legacy records and never overwrite or delete household, Traveller-profile, or personal inventory data.
 
 See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for boundaries and open decisions, and [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md) for the planned catalogue interface.
+
+The shared contract is documented canonically in [`docs/DATA_CONTRACT.md`](docs/DATA_CONTRACT.md). Remaining owner decisions—including source scope, redistribution rights, exact category taxonomy, final schema details, image processing, release signatures, and compatibility policy—are tracked in [`docs/DECISIONS.md`](docs/DECISIONS.md).
 
 ## Documentation
 

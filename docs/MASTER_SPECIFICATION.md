@@ -218,20 +218,18 @@ The catalogue should cover all relevant game data available from the source, inc
 
 Catalogue records should support:
 
-- Stable internal identifier.
+- Immutable UUID-based internal identifier maintained in a persistent ID registry.
 - Item name.
 - Category and subcategory.
 - Description.
-- Image/icon reference.
-- Stack limit, when verified.
-- Crafting/refining relationships where available.
-- Source URL and provenance.
-- Last checked or updated timestamp.
-- Data confidence or validation status.
+- Package-relative image reference, with original source URL and provenance stored separately.
+- Stack-limit information only when verified; record difficulty applicability only when supported by evidence.
+- Crafting/refining relationships represented as separate recipe records referencing item IDs.
+- Source URL, provenance, relevant timestamps, and an explicit validation state.
 
-Unknown stack limits must be marked as unknown or unverified. Do not guess.
+The shared versioned JSON interchange contract, including item, recipe, image, and manifest concepts, is defined in `docs/DATA_CONTRACT.md`. Its validation states are `verified`, `unknown`, `unverified`, `incomplete`, and `conflicting`; they are not confidence scores. Publish a numeric stack-limit value only when verified. Do not guess missing values. Exact category taxonomy, source mapping, and schema details that depend on source inspection remain pending.
 
-Catalogue data and a player's inventory must be separate. Updating catalogue information must never delete or overwrite personal inventory.
+Catalogue data and a player's inventory must be separate. For v1, catalogue tables are logically separate from household accounts, Traveller profiles, personal inventory, locations, starships, freighters, uploaded photographs, and history in the application's SQLite database. Updating catalogue information must never overwrite or delete those personal records. Retired catalogue items retain their immutable IDs and remain available as legacy records; personal inventory referencing them is preserved.
 
 # 6. Private scraper requirements
 
@@ -260,14 +258,18 @@ The public data repository will distribute versioned catalogue packages.
 
 A release should include:
 
-- A manifest containing version and release date.
+- `manifest.json`, containing separate catalogue content, catalogue schema, and manifest format versions, a UTC release timestamp, source and attribution information, and package-file metadata.
 - Source and attribution information.
-- Database or structured catalogue data.
-- Image package or image assets.
-- File checksums.
+- The versioned JSON catalogue package.
+- An image package, only for assets cleared for redistribution.
+- SHA-256 checksums and file sizes for package files.
 - Release notes.
 
 Use GitHub Releases for large binary packages rather than continuously adding large database and image archives to Git history.
+
+The application validates the JSON and all package references before import. It verifies SHA-256 checksums, enforces configured size limits, validates image content and safe package-relative paths, and protects archive extraction against path traversal. It backs up the catalogue and imports atomically with rollback. Catalogue writes are restricted to catalogue tables; an update must never overwrite or delete household accounts, Traveller profiles, personal inventory, locations, starships, freighters, uploaded photographs, or inventory history.
+
+The detailed shared contract and unresolved technical decisions are maintained in `docs/DATA_CONTRACT.md` and `docs/DECISIONS.md`.
 
 ## Application update process
 

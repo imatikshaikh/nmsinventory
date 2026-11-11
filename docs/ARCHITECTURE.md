@@ -2,7 +2,7 @@
 
 ## Status and authority
 
-This is the planned architecture for `nmsinventory`, based on [`MASTER_SPECIFICATION.md`](MASTER_SPECIFICATION.md). The project is still in documentation and bootstrap; this is not an implemented design. The master specification takes precedence if a detail here conflicts with it. Unresolved choices are tracked in [`DECISIONS.md`](DECISIONS.md).
+This is the planned architecture for `nmsinventory`, based on [`MASTER_SPECIFICATION.md`](MASTER_SPECIFICATION.md) and the canonical cross-repository [`DATA_CONTRACT.md`](DATA_CONTRACT.md). The project is still in documentation and architecture planning; this is not an implemented design. The master specification and approved decisions take precedence over unresolved recommendations.
 
 ## Technology direction
 
@@ -10,59 +10,62 @@ This is the planned architecture for `nmsinventory`, based on [`MASTER_SPECIFICA
 |---|---|---|
 | Frontend | React, TypeScript, Vite; responsive and accessible | UI libraries, routing, state management, and test tooling |
 | Backend | Node.js, Express, TypeScript; REST API initially | API conventions, validation library, and session implementation |
-| Application database | SQLite, separate from catalogue data; migrations | Prisma or another ORM; concrete schema and migration tooling |
+| Application database | SQLite with migrations | ORM and migration tooling |
+| Catalogue storage | Separate logical catalogue tables in the application's SQLite database for v1 | Physical table schema, import staging/swap details, and indexes |
 | Deployment | Docker Compose; default application port **8787** | Image/build layout, environment variable names, and volume names |
 
 These are architectural constraints, not instructions to scaffold the application during this documentation task.
 
-## System boundaries
+## Repository and runtime boundaries
 
-The application repository owns the web application, server, authentication and authorization, personal inventory, local catalogue installation and update behavior, deployment, tests, and user documentation.
+The application repository owns the web application, server, authentication and authorization, personal inventory, installation of published catalogue data, deployment, tests, and user documentation.
 
-The catalogue is distributed by the independent public `nmsinventory-data` repository. The application consumes a published, versioned data release and must continue to work offline with its last installed catalogue. It must not import code from, call, or require access to the private `nmsinventory-scraper` repository.
+The public `nmsinventory-data` repository distributes versioned catalogue packages through GitHub Releases. The application consumes those releases only and must continue to work offline with its last installed catalogue. It must not import code from, call, or require access to the private `nmsinventory-scraper`.
 
-The private scraper prepares candidate catalogue data and release packages. It is not part of application runtime or deployment.
+The private scraper prepares candidate JSON exports and packages for review and handoff to the data repository. Its internal database may use a different schema; its exported JSON must conform to the single canonical contract in [`DATA_CONTRACT.md`](DATA_CONTRACT.md). The scraper is not part of application runtime or deployment.
 
 ## Data ownership and isolation
 
-Model two distinct selection scopes:
+Keep these scopes distinct:
 
 1. **Household account** — a person who authenticates to an application installation.
-2. **Traveller/save profile** — one game save belonging to an account.
+2. **Traveller/save profile** — one game save belonging to one household account.
+3. **Personal inventory and related data** — owned by a Traveller/save profile and authorized through its owning account.
+4. **Catalogue** — installation-wide reference data, not owned by an account or profile.
 
-An account can own multiple Traveller profiles. Account switching changes the authenticated account context; profile switching selects a save within that account. These must remain separate user actions and authorization checks. Do not use profile switching as a substitute for account switching.
+Account switching changes authenticated account context. Profile switching selects a save within that account. These are separate actions and authorization checks. Every private operation must verify the authenticated account and, where applicable, ownership of the selected profile.
 
-Account-owned data (including credentials, account profile information, and account-level preferences) must not be visible to another account. Save-specific inventory, locations, ships, history, and profile preferences must be scoped to the owning account and the selected Traveller profile. Every private operation must verify the authenticated account and, when applicable, ownership of the selected profile. The exact database key structure and authorization implementation remain to be decided.
+Account-owned data (credentials, account profile information, and account-level preferences) must not be visible to another account. Save-specific inventory, locations, ships, freighters, history, uploaded photographs, and profile preferences must be scoped to the owning account and selected profile. The exact personal-data schema and authorization implementation remain to be designed.
 
-The first-run flow creates the initial administrator through the application interface. The application must support additional accounts and multiple save profiles without conflating them. When there is one account/profile, avoid unnecessary selection screens as specified in the master document.
+Catalogue item IDs are immutable UUIDs. Personal inventory references a catalogue ID but remains a separate user-owned record. Catalogue import/update is restricted to catalogue tables and must never overwrite or delete household accounts, Traveller profiles, personal inventory, locations, starships, freighters, uploaded photographs, or inventory history.
 
-## Database responsibility
+## SQLite catalogue boundary and retirement
 
-SQLite is the initial application database. It stores application-owned user and save data, inventory history, and the installed catalogue version/reference as needed. Catalogue records and personal inventory are separate data domains: catalogue refreshes may update catalogue information but must never delete or overwrite accounts, profiles, inventory, uploaded personal images, or activity history.
+For v1, catalogue tables are logically separate from account, profile, inventory, location, ship, freighter, photo metadata, and history tables in the application's SQLite database. Do not treat the release as a SQLite database; the canonical interchange is versioned JSON. The app validates the JSON and imports it into its own catalogue tables.
 
-The catalogue's published storage format and the application's local import representation are not yet specified. Do not assume the release will be a SQLite database or prescribe tables until the cross-repository contract has been confirmed. Schema, ORM, migration format, backup mechanics, and exact catalogue import boundaries are open decisions.
+Use a recoverable catalogue backup and an atomic transaction/swap when importing. Roll back to the prior catalogue on failure. Import logic must not delete/cascade into personal data. When an item disappears or is retired, preserve the catalogue record with its immutable ID and mark it retired/legacy. Existing inventory references remain valid. ID aliases/migration mappings are retained explicitly and never cause automatic changes to a player's inventory.
 
-Uploaded user images must use persistent application storage; large photo binaries must not be stored directly in SQLite. Database paths and image metadata may be persisted once their implementation details are decided.
+## Catalogue release and update
 
-## Catalogue update boundary
+The application reads published releases from `nmsinventory-data`, never from the private scraper. The shared [`DATA_CONTRACT.md`](DATA_CONTRACT.md) defines the JSON record concepts, validation vocabulary, UUID lifecycle, package-relative image references, manifest concepts, and integrity requirements.
 
-The application reads only published releases from the data repository. The planned update flow checks the published version and notes, requests confirmation, downloads and verifies the package, backs up the installed catalogue, validates and installs atomically, and rolls back on failure. Offline use must retain the last successful catalogue. No update may mutate personal inventory.
+The planned update flow checks the latest release, compares catalogue content versions, displays release notes, asks for confirmation, downloads assets, verifies byte sizes and SHA-256 checksums, validates schema and references, backs up the current catalogue, and atomically installs or rolls back. The last successful catalogue remains available offline.
 
-The precise manifest schema, serialization, version comparison rules, checksum algorithm, package layout, and import procedure are decisions to confirm in [`DATA_CONTRACT.md`](DATA_CONTRACT.md) and [`DECISIONS.md`](DECISIONS.md).
+Catalogue content version, catalogue schema version, and manifest format version are distinct. The application must reject unsupported schema versions rather than misinterpret them. Detailed compatibility ranges remain an open decision.
 
-## Deployment and configuration
-
-Docker Compose is the planned deployment model. The default application port is **8787**. Persistent storage is required for the SQLite database and uploaded images. The first-run administrator account must be created in the application, not by requiring manual credential edits in a `.env` file.
-
-Configuration should use environment variables where appropriate, but names, defaults, secret provisioning, and container layout must be selected during implementation planning. Keep secrets and local environment files out of Git.
-
-## Reliability and security constraints
+## Security and reliability constraints
 
 - Use secure password hashing, protected sessions, authorization on every private operation, input validation, and rate limits for authentication and sensitive actions.
-- Validate and safely store uploaded images.
-- Back up application data and provide a recovery workflow.
-- Treat catalogue installation as a validated, atomic operation with rollback.
-- Keep the core inventory intelligence usable without an AI service.
-- Never automate changes to a player's in-game inventory.
-- Test account/profile isolation and critical inventory calculations before declaring the relevant milestone complete.
+- Validate personal uploads; store uploaded user images in persistent storage rather than large SQLite blobs.
+- Treat release data as untrusted input. Validate JSON against the supported schema and validate UUIDs, references, states, stack-limit evidence, and file metadata.
+- Verify SHA-256 and asset size before processing. Enforce configured download, archive, image, and JSON limits.
+- Reject absolute, URL-based, traversal, and package-root-escaping image paths; reject archive traversal entries and symlinks.
+- Validate image content and media type, not just extension. Do not fetch arbitrary source URLs during import.
+- Back up and atomically import catalogue tables with rollback. Never overwrite or delete personal records or history.
+- Keep core inventory intelligence usable without an AI service, and never automate in-game inventory changes.
+- Keep credentials, private user data, local environment files, and confidential permission evidence out of Git and public packages.
+- Test account/profile isolation, catalogue validation/import/rollback, and critical inventory calculations before declaring the relevant milestone complete.
 
+## Decisions still pending
+
+See [`DECISIONS.md`](DECISIONS.md): exact category taxonomy and source mapping; optional/missing/null conventions and final JSON Schema; image format/conversion; source host, redirects, subdomains, and image-host allowlist; redistribution permissions; signature/attestation; and detailed version compatibility policy. These open matters do not change the approved JSON, UUID, SQLite logical-separation, or non-destructive-retirement requirements.
